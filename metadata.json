@@ -1,0 +1,8 @@
+{
+  "name": "SupportNexus",
+  "description": "Multi-Tenant Help Desk & Task Management System with self-hosting, personal data security, credentials administration, JSON backups and restorations, SLA tracking, and local-first simulation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

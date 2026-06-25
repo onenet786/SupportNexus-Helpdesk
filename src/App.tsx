@@ -1672,9 +1672,9 @@ services:
   supportnexus-app:
     image: supportnexus/platform:latest
     ports:
-      - "3000:3000"
+      - "3008:3008"
     environment:
-      - PORT=3000
+      - PORT=3008
       - DATABASE_URL=postgresql://root:secret_sandbox_vault_key@postgres:5432/supportnexus
       - REDIS_URL=redis://redis:6379/0
       - GEMINI_API_KEY=\${GEMINI_API_KEY}

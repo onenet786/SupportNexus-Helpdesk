@@ -1,15 +1,17 @@
+import dotenv from "dotenv";
+dotenv.config();
 import express from "express";
 import path from "path";
 import fs from "fs";
-import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
+import { query, pool } from "./db";
 import { 
   Tenant, Company, User, Ticket, Message, Attachment, 
   SLAPolicies, DatabaseBackup, TicketStatus, TicketPriority, UserRole
 } from "./src/types";
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3008;
 const DB_FILE = path.join(process.cwd(), "db.json");
 
 app.use(express.json({ limit: '20mb' }));
@@ -301,26 +303,132 @@ const createInitialSeedData = (): DatabaseBackup => {
   };
 };
 
-// Safe DB Read/Write
-const readDb = (): DatabaseBackup => {
-  if (!fs.existsSync(DB_FILE)) {
-    const freshSeed = createInitialSeedData();
-    fs.writeFileSync(DB_FILE, JSON.stringify(freshSeed, null, 2), "utf-8");
-    return freshSeed;
+// Safe DB Read/Write mapping functions
+const mapUser = (dbUser: any): User => ({
+  id: dbUser.id,
+  email: dbUser.email,
+  fullName: dbUser.full_name,
+  userType: dbUser.user_type,
+  tenantId: dbUser.tenant_id,
+  companyId: dbUser.company_id || undefined,
+  role: dbUser.role,
+  isActive: dbUser.is_active,
+  createdAt: dbUser.created_at
+});
+
+const mapTicket = (dbTicket: any): Ticket => ({
+  id: dbTicket.id,
+  tenantId: dbTicket.tenant_id,
+  companyId: dbTicket.company_id,
+  companyName: dbTicket.company_name,
+  reference: dbTicket.reference,
+  subject: dbTicket.subject,
+  description: dbTicket.description,
+  status: dbTicket.status,
+  priority: dbTicket.priority,
+  tier: dbTicket.tier,
+  assignedToId: dbTicket.assigned_to_id || undefined,
+  assignedToName: dbTicket.assigned_to_name || undefined,
+  slaResponseBy: dbTicket.sla_response_by,
+  slaResolveBy: dbTicket.sla_resolve_by,
+  isResponseBreached: dbTicket.is_response_breached,
+  isResolveBreached: dbTicket.is_resolve_breached,
+  isResponseMet: dbTicket.is_response_met,
+  isResolveMet: dbTicket.is_resolve_met,
+  customFields: dbTicket.custom_fields,
+  createdAt: dbTicket.created_at,
+  updatedAt: dbTicket.updated_at,
+  resolvedAt: dbTicket.resolved_at || undefined
+});
+
+const mapMessage = (dbMsg: any): Message => ({
+  id: dbMsg.id,
+  ticketId: dbMsg.ticket_id,
+  tenantId: dbMsg.tenant_id,
+  authorId: dbMsg.author_id,
+  authorName: dbMsg.author_name,
+  authorRole: dbMsg.author_role,
+  content: dbMsg.content,
+  isInternal: dbMsg.is_internal,
+  source: dbMsg.source,
+  attachments: typeof dbMsg.attachments === 'string' ? JSON.parse(dbMsg.attachments) : dbMsg.attachments || [],
+  createdAt: dbMsg.created_at
+});
+
+const seedDatabase = async () => {
+  const seed = createInitialSeedData();
+  
+  for (const t of seed.tenants) {
+    await query(
+      `INSERT INTO tenants (id, name, subdomain, branding, is_active, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (id) DO NOTHING`,
+      [t.id, t.name, t.subdomain, t.branding, t.isActive, t.createdAt]
+    );
   }
-  try {
-    const raw = fs.readFileSync(DB_FILE, "utf-8");
-    return JSON.parse(raw);
-  } catch (err) {
-    console.warn("DB file corrupt or error-prone. Re-creating template...");
-    const freshSeed = createInitialSeedData();
-    fs.writeFileSync(DB_FILE, JSON.stringify(freshSeed, null, 2), "utf-8");
-    return freshSeed;
+
+  for (const c of seed.companies) {
+    await query(
+      `INSERT INTO companies (id, tenant_id, name, created_at)
+       VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING`,
+      [c.id, c.tenantId, c.name, c.createdAt]
+    );
   }
+
+  for (const u of seed.users) {
+    await query(
+      `INSERT INTO users (id, email, full_name, user_type, tenant_id, company_id, role, is_active, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (id) DO NOTHING`,
+      [u.id, u.email, u.fullName, u.userType, u.tenantId, u.companyId || null, u.role, u.isActive, u.createdAt]
+    );
+  }
+
+  for (const t of seed.tickets) {
+    await query(
+      `INSERT INTO tickets (id, tenant_id, company_id, company_name, reference, subject, description, status, priority, tier, assigned_to_id, assigned_to_name, sla_response_by, sla_resolve_by, is_response_breached, is_resolve_breached, is_response_met, is_resolve_met, custom_fields, created_at, updated_at, resolved_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22) ON CONFLICT (id) DO NOTHING`,
+      [
+        t.id, t.tenantId, t.companyId, t.companyName, t.reference, t.subject, t.description, t.status, t.priority, t.tier,
+        t.assignedToId || null, t.assignedToName || null, t.slaResponseBy, t.slaResolveBy, t.isResponseBreached, t.isResolveBreached,
+        t.isResponseMet, t.isResolveMet, t.customFields, t.createdAt, t.updatedAt, t.resolvedAt || null
+      ]
+    );
+  }
+
+  for (const m of seed.messages) {
+    await query(
+      `INSERT INTO messages (id, ticket_id, tenant_id, author_id, author_name, author_role, content, is_internal, source, attachments, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) ON CONFLICT (id) DO NOTHING`,
+      [m.id, m.ticketId, m.tenantId, m.authorId, m.authorName, m.authorRole, m.content, m.isInternal, m.source, JSON.stringify(m.attachments || []), m.createdAt]
+    );
+  }
+
+  for (const [tenantId, policies] of Object.entries(seed.slaPolicies)) {
+    await query(
+      `INSERT INTO sla_policies (tenant_id, policies)
+       VALUES ($1, $2) ON CONFLICT (tenant_id) DO NOTHING`,
+      [tenantId, policies]
+    );
+  }
+
+  console.log("Database seeded successfully!");
 };
 
-const writeDb = (data: DatabaseBackup) => {
-  fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), "utf-8");
+const initializeDatabase = async () => {
+  try {
+    const schemaPath = path.join(process.cwd(), "schema.sql");
+    const schemaSql = fs.readFileSync(schemaPath, "utf8");
+    await query(schemaSql);
+    console.log("Database schema applied successfully.");
+
+    const tenantsCheck = await query("SELECT count(*) FROM tenants");
+    const count = parseInt(tenantsCheck.rows[0].count, 10);
+    if (count === 0) {
+      console.log("Database empty. Seeding initial demo data...");
+      await seedDatabase();
+    }
+  } catch (err) {
+    console.error("Database initialization failed:", err);
+  }
 };
 
 // Lazy initialize Gemini SDK
@@ -345,108 +453,127 @@ const getGeminiClient = (): GoogleGenAI => {
 };
 
 // Simple Mock Auth verification
-const authenticateUserByEmail = (email: string): User | null => {
-  const db = readDb();
-  const found = db.users.find(u => u.email.toLowerCase() === email.toLowerCase());
-  return found || null;
+const authenticateUserByEmail = async (email: string): Promise<User | null> => {
+  const result = await query("SELECT * FROM users WHERE LOWER(email) = LOWER($1)", [email]);
+  if (result.rows.length === 0) return null;
+  return mapUser(result.rows[0]);
 };
 
 // API Router
 // 1. Authenticate user (for mock login sessions)
-app.post("/api/auth/login", (req, res) => {
+app.post("/api/auth/login", async (req, res) => {
   const { email } = req.body;
   if (!email) {
     return res.status(400).json({ error: "Email is required" });
   }
-  const user = authenticateUserByEmail(email);
-  if (!user) {
-    return res.status(401).json({ error: "Invalid user credentials. Please check seed accounts." });
+  try {
+    const user = await authenticateUserByEmail(email);
+    if (!user) {
+      return res.status(401).json({ error: "Invalid user credentials. Please check seed accounts." });
+    }
+    return res.json({ user, token: `mock-token-${user.id}` });
+  } catch (err) {
+    return res.status(500).json({ error: "Auth database query failed" });
   }
-  return res.json({ user, token: `mock-token-${user.id}` });
 });
 
 // 2. Fetch active databases/tickets
-app.get("/api/tickets", (req, res) => {
-  const db = readDb();
+app.get("/api/tickets", async (req, res) => {
   const tenantId = req.headers["x-tenant-id"] as string;
   const userRole = req.headers["x-user-role"] as string;
   const userId = req.headers["x-user-id"] as string;
 
-  let filtered = db.tickets;
+  let queryText = "SELECT * FROM tickets WHERE 1=1";
+  const params: any[] = [];
 
-  // Multi-tenant separation: Row-Level Security simulation
   if (tenantId) {
-    filtered = filtered.filter(t => t.tenantId === tenantId);
+    params.push(tenantId);
+    queryText += ` AND tenant_id = $${params.length}`;
   }
 
-  // Client user isolation: Can only see their organization's tickets
   if (userRole === "client_user" && userId) {
-    const userObj = db.users.find(u => u.id === userId);
-    if (userObj?.companyId) {
-      filtered = filtered.filter(t => t.companyId === userObj.companyId);
-    } else {
-      filtered = []; // None found
+    try {
+      const userRes = await query("SELECT company_id FROM users WHERE id = $1", [userId]);
+      const companyId = userRes.rows[0]?.company_id;
+      if (companyId) {
+        params.push(companyId);
+        queryText += ` AND company_id = $${params.length}`;
+      } else {
+        return res.json({ data: [] });
+      }
+    } catch (err) {
+      return res.status(500).json({ error: "RLS isolation query failed" });
     }
   }
 
-  // Handle simple filter options
   const status = req.query.status as string;
   if (status) {
-    filtered = filtered.filter(t => t.status === status);
+    params.push(status);
+    queryText += ` AND status = $${params.length}`;
   }
 
   const priority = req.query.priority as string;
   if (priority) {
-    filtered = filtered.filter(t => t.priority === priority);
+    params.push(priority);
+    queryText += ` AND priority = $${params.length}`;
   }
 
-  // Search filter
   const search = req.query.search as string;
   if (search) {
-    const q = search.toLowerCase();
-    filtered = filtered.filter(t => 
-      t.subject.toLowerCase().includes(q) || 
-      t.description.toLowerCase().includes(q) ||
-      t.reference.toLowerCase().includes(q)
-    );
+    params.push(`%${search.toLowerCase()}%`);
+    queryText += ` AND (LOWER(subject) LIKE $${params.length} OR LOWER(description) LIKE $${params.length} OR LOWER(reference) LIKE $${params.length})`;
   }
 
-  return res.json({ data: filtered });
+  queryText += " ORDER BY created_at DESC";
+
+  try {
+    const result = await query(queryText, params);
+    const mapped = result.rows.map(mapTicket);
+    return res.json({ data: mapped });
+  } catch (err) {
+    return res.status(500).json({ error: "Failed to fetch tickets" });
+  }
 });
 
 // 3. Get ticket details with authentic messages
-app.get("/api/tickets/:id", (req, res) => {
-  const db = readDb();
+app.get("/api/tickets/:id", async (req, res) => {
   const { id } = req.params;
   const userRole = req.headers["x-user-role"] as string;
 
-  const ticket = db.tickets.find(t => t.id === id);
-  if (!ticket) {
-    return res.status(404).json({ error: "Ticket not found" });
-  }
-
-  // Client user secondary safety isolation
-  if (userRole === "client_user") {
-    const clientUserEmail = req.headers["x-user-email"] as string;
-    const client = db.users.find(u => u.email === clientUserEmail);
-    if (client && ticket.companyId !== client.companyId) {
-      return res.status(403).json({ error: "Forbidden: Cross-tenant data leakage prevented by RLS" });
+  try {
+    const ticketRes = await query("SELECT * FROM tickets WHERE id = $1", [id]);
+    if (ticketRes.rows.length === 0) {
+      return res.status(404).json({ error: "Ticket not found" });
     }
-  }
+    const ticket = mapTicket(ticketRes.rows[0]);
 
-  // Message threading: public replies vs internal notes
-  let mThreads = db.messages.filter(m => m.ticketId === id);
-  if (userRole === "client_user") {
-    // Rigid scope control: NEVER let isInternal discussions escape to customer portal client-side
-    mThreads = mThreads.filter(m => !m.isInternal);
-  }
+    if (userRole === "client_user") {
+      const clientUserEmail = req.headers["x-user-email"] as string;
+      const userRes = await query("SELECT company_id FROM users WHERE email = $1", [clientUserEmail]);
+      const companyId = userRes.rows[0]?.company_id;
+      if (companyId && ticket.companyId !== companyId) {
+        return res.status(403).json({ error: "Forbidden: Cross-tenant data leakage prevented by RLS" });
+      }
+    }
 
-  return res.json({ ticket, messages: mThreads });
+    let msgQuery = "SELECT * FROM messages WHERE ticket_id = $1";
+    const msgParams = [id];
+    if (userRole === "client_user") {
+      msgQuery += " AND is_internal = FALSE";
+    }
+    msgQuery += " ORDER BY created_at ASC";
+
+    const msgRes = await query(msgQuery, msgParams);
+    const messages = msgRes.rows.map(mapMessage);
+
+    return res.json({ ticket, messages });
+  } catch (err) {
+    return res.status(500).json({ error: "Failed to fetch ticket details" });
+  }
 });
 
 // 4. Create single tickets (with Dynamic SLA generation & Idempotent tracker simulation)
-app.post("/api/tickets", (req, res) => {
-  const db = readDb();
+app.post("/api/tickets", async (req, res) => {
   const { subject, description, priority, companyId, tenantId, customFields } = req.body;
   const authorEmail = req.headers["x-user-email"] as string || "customer@acme.com";
 
@@ -454,436 +581,434 @@ app.post("/api/tickets", (req, res) => {
     return res.status(400).json({ error: "Please input high constraints: subject, description, priority, and tenant" });
   }
 
-  const tenant = db.tenants.find(t => t.id === tenantId);
-  const company = db.companies.find(c => c.id === companyId) || db.companies[0];
-  const author = db.users.find(u => u.email === authorEmail);
+  try {
+    const tenantRes = await query("SELECT * FROM tenants WHERE id = $1", [tenantId]);
+    if (tenantRes.rows.length === 0) {
+      return res.status(404).json({ error: "Invalid Tenant" });
+    }
+    const tenant = tenantRes.rows[0];
 
-  if (!tenant) {
-    return res.status(404).json({ error: "Invalid Tenant" });
+    let companyRes = await query("SELECT * FROM companies WHERE id = $1", [companyId]);
+    if (companyRes.rows.length === 0) {
+      companyRes = await query("SELECT * FROM companies WHERE tenant_id = $1 LIMIT 1", [tenantId]);
+    }
+    const company = companyRes.rows[0];
+
+    const authorRes = await query("SELECT * FROM users WHERE email = $1", [authorEmail]);
+    const author = authorRes.rows[0];
+
+    const slaRes = await query("SELECT policies FROM sla_policies WHERE tenant_id = $1", [tenantId]);
+    const policies = slaRes.rows[0]?.policies || DEFAULT_SLA_POLICIES;
+    const slaRule = policies[priority] || policies.medium;
+
+    const respTarget = new Date(Date.now() + slaRule.firstResponseMinutes * 60 * 1000).toISOString();
+    const resolveTarget = new Date(Date.now() + slaRule.resolutionMinutes * 60 * 1000).toISOString();
+
+    const tenantSub = tenant.subdomain.toUpperCase();
+    const countRes = await query("SELECT COUNT(*) FROM tickets WHERE tenant_id = $1", [tenantId]);
+    const tCount = parseInt(countRes.rows[0].count, 10) + 101;
+    const reference = `TKT-${tenantSub}-${tCount}`;
+
+    const newTicketId = `ticket-gen-${Date.now()}`;
+    const nowStr = new Date().toISOString();
+
+    await query(
+      `INSERT INTO tickets (id, tenant_id, company_id, company_name, reference, subject, description, status, priority, tier, sla_response_by, sla_resolve_by, is_response_breached, is_resolve_breached, is_response_met, is_resolve_met, custom_fields, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
+      [
+        newTicketId, tenantId, company.id, company.name, reference, subject, description, "new", priority, "l1",
+        respTarget, resolveTarget, false, false, false, false, customFields || {}, nowStr, nowStr
+      ]
+    );
+
+    const newMsgId = `msg-gen-${Date.now()}`;
+    await query(
+      `INSERT INTO messages (id, ticket_id, tenant_id, author_id, author_name, author_role, content, is_internal, source, attachments, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+      [
+        newMsgId, newTicketId, tenantId, author ? author.id : "guest-id", author ? author.full_name : "Guest Submitter",
+        author ? author.role : "client_user", description, false, "portal", JSON.stringify([]), nowStr
+      ]
+    );
+
+    const createdTicketRes = await query("SELECT * FROM tickets WHERE id = $1", [newTicketId]);
+    return res.status(201).json(mapTicket(createdTicketRes.rows[0]));
+  } catch (err) {
+    return res.status(500).json({ error: "Failed to create ticket" });
   }
-
-  // Dynamic SLA allocation based on Tenant setup
-  const tenantSla = db.slaPolicies[tenantId] || DEFAULT_SLA_POLICIES;
-  const slaRule = tenantSla[priority as TicketPriority] || tenantSla.medium;
-
-  const respTarget = new Date(Date.now() + slaRule.firstResponseMinutes * 60 * 1000).toISOString();
-  const resolveTarget = new Date(Date.now() + slaRule.resolutionMinutes * 60 * 1000).toISOString();
-
-  // Create human-readable serial reference PK
-  const tenantSub = tenant.subdomain.toUpperCase();
-  const tCount = db.tickets.filter(t => t.tenantId === tenantId).length + 101;
-  const reference = `TKT-${tenantSub}-${tCount}`;
-
-  const newTicket: Ticket = {
-    id: `ticket-gen-${Date.now()}`,
-    tenantId,
-    companyId: company.id,
-    companyName: company.name,
-    reference,
-    subject,
-    description,
-    status: "new",
-    priority: priority as TicketPriority,
-    tier: "l1",
-    slaResponseBy: respTarget,
-    slaResolveBy: resolveTarget,
-    isResponseBreached: false,
-    isResolveBreached: false,
-    isResponseMet: false,
-    isResolveMet: false,
-    customFields: customFields || {},
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  };
-
-  db.tickets.unshift(newTicket);
-
-  // Auto-initiate message thread with the initial submission body
-  const initialMsg: Message = {
-    id: `msg-gen-${Date.now()}`,
-    ticketId: newTicket.id,
-    tenantId,
-    authorId: author ? author.id : "guest-id",
-    authorName: author ? author.fullName : "Guest Submitter",
-    authorRole: author ? author.role : "client_user",
-    content: description,
-    isInternal: false,
-    source: "portal",
-    attachments: [],
-    createdAt: new Date().toISOString()
-  };
-
-  db.messages.push(initialMsg);
-  writeDb(db);
-
-  return res.status(201).json(newTicket);
 });
 
 // 5. Submit Message to Thread (Validates strict internal note separation & customer safety)
-app.post("/api/tickets/:id/messages", (req, res) => {
-  const db = readDb();
+app.post("/api/tickets/:id/messages", async (req, res) => {
   const { id } = req.params;
   const { content, isInternal, source, attachments } = req.body;
   const authorEmail = req.headers["x-user-email"] as string;
 
-  const ticket = db.tickets.find(t => t.id === id);
-  if (!ticket) {
-    return res.status(404).json({ error: "Ticket not found" });
-  }
-
-  const author = db.users.find(u => u.email === authorEmail);
-  if (!author) {
-    return res.status(404).json({ error: "Author not found" });
-  }
-
-  // Validation: client_user is strictly forbidden from posting/reading internal flags
-  const finalIsInternal = author.role === "client_user" ? false : !!isInternal;
-
-  const newMessage: Message = {
-    id: `msg-gen-${Date.now()}`,
-    ticketId: id,
-    tenantId: ticket.tenantId,
-    authorId: author.id,
-    authorName: author.fullName,
-    authorRole: author.role,
-    content,
-    isInternal: finalIsInternal,
-    source: source || 'portal',
-    attachments: attachments || [],
-    createdAt: new Date().toISOString()
-  };
-
-  db.messages.push(newMessage);
-
-  // If client replies or agent acts, update ticket details
-  ticket.updatedAt = new Date().toISOString();
-  if (author.role === "client_user" && ticket.status === "awaiting_client") {
-    // Reopen immediately upon customer feedback
-    ticket.status = "in_progress";
-  }
-
-  // Update SLA stats on first agent reply
-  if (author.role !== "client_user" && !ticket.isResponseMet) {
-    ticket.isResponseMet = true;
-    const now = new Date();
-    const limit = new Date(ticket.slaResponseBy);
-    if (now > limit) {
-      ticket.isResponseBreached = true;
+  try {
+    const ticketRes = await query("SELECT * FROM tickets WHERE id = $1", [id]);
+    if (ticketRes.rows.length === 0) {
+      return res.status(404).json({ error: "Ticket not found" });
     }
-  }
+    const ticket = ticketRes.rows[0];
 
-  writeDb(db);
-  return res.status(201).json(newMessage);
+    const authorRes = await query("SELECT * FROM users WHERE email = $1", [authorEmail]);
+    if (authorRes.rows.length === 0) {
+      return res.status(404).json({ error: "Author not found" });
+    }
+    const author = authorRes.rows[0];
+
+    const finalIsInternal = author.role === "client_user" ? false : !!isInternal;
+    const newMsgId = `msg-gen-${Date.now()}`;
+    const nowStr = new Date().toISOString();
+
+    await query(
+      `INSERT INTO messages (id, ticket_id, tenant_id, author_id, author_name, author_role, content, is_internal, source, attachments, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+      [
+        newMsgId, id, ticket.tenant_id, author.id, author.full_name, author.role,
+        content, finalIsInternal, source || "portal", JSON.stringify(attachments || []), nowStr
+      ]
+    );
+
+    let nextStatus = ticket.status;
+    if (author.role === "client_user" && ticket.status === "awaiting_client") {
+      nextStatus = "in_progress";
+    }
+
+    let isResponseMet = ticket.is_response_met;
+    let isResponseBreached = ticket.is_response_breached;
+    if (author.role !== "client_user" && !isResponseMet) {
+      isResponseMet = true;
+      const now = new Date();
+      const limit = new Date(ticket.sla_response_by);
+      if (now > limit) {
+        isResponseBreached = true;
+      }
+    }
+
+    await query(
+      `UPDATE tickets SET status = $1, is_response_met = $2, is_response_breached = $3, updated_at = $4 WHERE id = $5`,
+      [nextStatus, isResponseMet, isResponseBreached, nowStr, id]
+    );
+
+    const insertedMsgRes = await query("SELECT * FROM messages WHERE id = $1", [newMsgId]);
+    return res.status(201).json(mapMessage(insertedMsgRes.rows[0]));
+  } catch (err) {
+    return res.status(500).json({ error: "Failed to post message" });
+  }
 });
 
 // 6. Transition Ticket Status (Validates explicit state machine routes!)
-app.post("/api/tickets/:id/status", (req, res) => {
-  const db = readDb();
+app.post("/api/tickets/:id/status", async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
   const userRole = req.headers["x-user-role"] as string;
 
-  const ticket = db.tickets.find(t => t.id === id);
-  if (!ticket) {
-    return res.status(404).json({ error: "Ticket not found" });
-  }
-
-  const currentStatus = ticket.status;
-  const nextStatus = status as TicketStatus;
-
-  // Strict transition verification
-  const validTransitions: Record<TicketStatus, TicketStatus[]> = {
-    new: ["in_progress", "resolved"],
-    in_progress: ["awaiting_client", "escalated", "resolved"],
-    awaiting_client: ["in_progress", "resolved"],
-    escalated: ["in_progress", "resolved", "awaiting_client"],
-    resolved: ["in_progress"] // client can reopen
-  };
-
-  const allowed = validTransitions[currentStatus] || [];
-  if (!allowed.includes(nextStatus)) {
-    return res.status(422).json({ 
-      error: `INVALID_STATUS_TRANSITION: Cannot transition ticket from ${currentStatus} to ${nextStatus}.` 
-    });
-  }
-
-  // Update status
-  ticket.status = nextStatus;
-  ticket.updatedAt = new Date().toISOString();
-  if (nextStatus === "resolved") {
-    ticket.resolvedAt = new Date().toISOString();
-    ticket.isResolveMet = true;
-    if (new Date() > new Date(ticket.slaResolveBy)) {
-      ticket.isResolveBreached = true;
+  try {
+    const ticketRes = await query("SELECT * FROM tickets WHERE id = $1", [id]);
+    if (ticketRes.rows.length === 0) {
+      return res.status(404).json({ error: "Ticket not found" });
     }
+    const ticket = ticketRes.rows[0];
+
+    const currentStatus = ticket.status;
+    const nextStatus = status as TicketStatus;
+
+    const validTransitions: Record<TicketStatus, TicketStatus[]> = {
+      new: ["in_progress", "resolved"],
+      in_progress: ["awaiting_client", "escalated", "resolved"],
+      awaiting_client: ["in_progress", "resolved"],
+      escalated: ["in_progress", "resolved", "awaiting_client"],
+      resolved: ["in_progress"]
+    };
+
+    const allowed = validTransitions[currentStatus] || [];
+    if (!allowed.includes(nextStatus)) {
+      return res.status(422).json({ 
+        error: `INVALID_STATUS_TRANSITION: Cannot transition ticket from ${currentStatus} to ${nextStatus}.` 
+      });
+    }
+
+    const nowStr = new Date().toISOString();
+    let resolvedAt = ticket.resolved_at;
+    let isResolveMet = ticket.is_resolve_met;
+    let isResolveBreached = ticket.is_resolve_breached;
+
+    if (nextStatus === "resolved") {
+      resolvedAt = nowStr;
+      isResolveMet = true;
+      if (new Date() > new Date(ticket.sla_resolve_by)) {
+        isResolveBreached = true;
+      }
+    }
+
+    await query(
+      `UPDATE tickets SET status = $1, updated_at = $2, resolved_at = $3, is_resolve_met = $4, is_resolve_breached = $5 WHERE id = $6`,
+      [nextStatus, nowStr, resolvedAt, isResolveMet, isResolveBreached, id]
+    );
+
+    const systemMsgId = `msg-system-${Date.now()}`;
+    await query(
+      `INSERT INTO messages (id, ticket_id, tenant_id, author_id, author_name, author_role, content, is_internal, source, attachments, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+      [
+        systemMsgId, id, ticket.tenant_id, "system", "Nexus Engine", "admin",
+        `Ticket status updated from ${currentStatus.toUpperCase()} to ${nextStatus.toUpperCase()}`,
+        false, "system", JSON.stringify([]), nowStr
+      ]
+    );
+
+    const updatedTicket = await query("SELECT * FROM tickets WHERE id = $1", [id]);
+    return res.json(mapTicket(updatedTicket.rows[0]));
+  } catch (err) {
+    return res.status(500).json({ error: "Failed to update ticket status" });
   }
-
-  // System notification thread entry
-  const systemMsg: Message = {
-    id: `msg-system-${Date.now()}`,
-    ticketId: id,
-    tenantId: ticket.tenantId,
-    authorId: "system",
-    authorName: "Nexus Engine",
-    authorRole: "admin",
-    content: `Ticket status updated from ${currentStatus.toUpperCase()} to ${nextStatus.toUpperCase()}`,
-    isInternal: false,
-    source: "system",
-    attachments: [],
-    createdAt: new Date().toISOString()
-  };
-  db.messages.push(systemMsg);
-
-  writeDb(db);
-  return res.json(ticket);
 });
 
 // 7. Tiered Escalation Endpoint (L1 -> L2 -> L3 sequentially)
-app.post("/api/tickets/:id/escalate", (req, res) => {
-  const db = readDb();
+app.post("/api/tickets/:id/escalate", async (req, res) => {
   const { id } = req.params;
   const { reason, targetTier } = req.body;
   const authorEmail = req.headers["x-user-email"] as string;
 
-  const ticket = db.tickets.find(t => t.id === id);
-  if (!ticket) {
-    return res.status(404).json({ error: "Ticket not found" });
+  try {
+    const ticketRes = await query("SELECT * FROM tickets WHERE id = $1", [id]);
+    if (ticketRes.rows.length === 0) {
+      return res.status(404).json({ error: "Ticket not found" });
+    }
+    const ticket = ticketRes.rows[0];
+
+    const agentRes = await query("SELECT * FROM users WHERE email = $1", [authorEmail]);
+    if (agentRes.rows.length === 0) {
+      return res.status(404).json({ error: "Agent check failed" });
+    }
+    const agent = agentRes.rows[0];
+
+    if (!reason || reason.length < 10) {
+      return res.status(400).json({ error: "An escalation requires an internal note reason of at least 10 characters." });
+    }
+
+    let nextTier = targetTier;
+    if (agent.role === "l1_agent") {
+      nextTier = "l2";
+    } else if (agent.role === "l2_agent") {
+      nextTier = "l3";
+    } else if (!nextTier) {
+      nextTier = "l2";
+    }
+
+    const nowStr = new Date().toISOString();
+    await query(
+      `UPDATE tickets SET tier = $1, status = 'escalated', updated_at = $2 WHERE id = $3`,
+      [nextTier, nowStr, id]
+    );
+
+    const noteContent = `**[ESCALATION NOTICE L1→${nextTier.toUpperCase()}]** Reason: ${reason}. Escalated by ${agent.full_name}.`;
+    const internalEscalationMsgId = `msg-escalate-${Date.now()}`;
+
+    await query(
+      `INSERT INTO messages (id, ticket_id, tenant_id, author_id, author_name, author_role, content, is_internal, source, attachments, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+      [
+        internalEscalationMsgId, id, ticket.tenant_id, agent.id, agent.full_name, agent.role,
+        noteContent, true, "portal", JSON.stringify([]), nowStr
+      ]
+    );
+
+    const updatedTicket = await query("SELECT * FROM tickets WHERE id = $1", [id]);
+    return res.json(mapTicket(updatedTicket.rows[0]));
+  } catch (err) {
+    return res.status(500).json({ error: "Failed to escalate ticket" });
   }
-
-  const agent = db.users.find(u => u.email === authorEmail);
-  if (!agent) {
-    return res.status(404).json({ error: "Agent check failed" });
-  }
-
-  if (!reason || reason.length < 10) {
-    return res.status(400).json({ error: "An escalation requires an internal note reason of at least 10 characters." });
-  }
-
-  const currentTier = ticket.tier;
-  let nextTier: 'l1' | 'l2' | 'l3' = targetTier;
-
-  // Enforce sequential tier jumps for L1 agents
-  if (agent.role === "l1_agent") {
-    nextTier = "l2";
-  } else if (agent.role === "l2_agent") {
-    nextTier = "l3";
-  } else if (!nextTier) {
-    nextTier = "l2";
-  }
-
-  ticket.tier = nextTier;
-  ticket.status = "escalated";
-  ticket.updatedAt = new Date().toISOString();
-
-  // Create immediate mandatory yellow discussion note with historical context
-  const noteContent = `**[ESCALATION NOTICE L1→${nextTier.toUpperCase()}]** Reason: ${reason}. Escalated by ${agent.fullName}.`;
-  const internalEscalationMsg: Message = {
-    id: `msg-escalate-${Date.now()}`,
-    ticketId: id,
-    tenantId: ticket.tenantId,
-    authorId: agent.id,
-    authorName: agent.fullName,
-    authorRole: agent.role,
-    content: noteContent,
-    isInternal: true, // Internal only! Must be locked from clients
-    source: "portal",
-    attachments: [],
-    createdAt: new Date().toISOString()
-  };
-
-  db.messages.push(internalEscalationMsg);
-  writeDb(db);
-
-  return res.json(ticket);
 });
 
 // 8. SLA Breach Scanner background trigger (Simulate cron ticks on demand)
-app.post("/api/sla/trigger-check", (req, res) => {
-  const db = readDb();
-  const now = new Date();
-  let updatedCount = 0;
+app.post("/api/sla/trigger-check", async (req, res) => {
+  try {
+    const now = new Date();
+    const ticketsRes = await query("SELECT * FROM tickets WHERE status != 'resolved'");
+    let updatedCount = 0;
 
-  db.tickets.forEach(t => {
-    if (t.status !== "resolved") {
-      const respDate = new Date(t.slaResponseBy);
-      const resolveDate = new Date(t.slaResolveBy);
+    for (const t of ticketsRes.rows) {
+      const respDate = new Date(t.sla_response_by);
+      const resolveDate = new Date(t.sla_resolve_by);
+      let tUpdated = false;
+      let isResponseBreached = t.is_response_breached;
+      let isResolveBreached = t.is_resolve_breached;
 
-      if (now > respDate && !t.isResponseMet && !t.isResponseBreached) {
-        t.isResponseBreached = true;
-        updatedCount++;
+      if (now > respDate && !t.is_response_met && !isResponseBreached) {
+        isResponseBreached = true;
+        tUpdated = true;
       }
-      if (now > resolveDate && !t.isResolveMet && !t.isResolveBreached) {
-        t.isResolveBreached = true;
+      if (now > resolveDate && !t.is_resolve_met && !isResolveBreached) {
+        isResolveBreached = true;
+        tUpdated = true;
+      }
+
+      if (tUpdated) {
+        await query(
+          `UPDATE tickets SET is_response_breached = $1, is_resolve_breached = $2 WHERE id = $3`,
+          [isResponseBreached, isResolveBreached, t.id]
+        );
         updatedCount++;
       }
     }
-  });
 
-  if (updatedCount > 0) {
-    writeDb(db);
+    return res.json({ status: "success", checkedAt: now.toISOString(), breachedRowsTriggered: updatedCount });
+  } catch (err) {
+    return res.status(500).json({ error: "Failed to run SLA check" });
   }
-  return res.json({ status: "success", checkedAt: now.toISOString(), breachedRowsTriggered: updatedCount });
 });
-
 // 9. Operational dashboard metrics queries
-app.get("/api/reports/dashboard", (req, res) => {
-  const db = readDb();
+app.get("/api/reports/dashboard", async (req, res) => {
   const tenantId = req.headers["x-tenant-id"] as string;
 
-  const tickets = db.tickets.filter(t => !tenantId || t.tenantId === tenantId);
-
-  const openTickets = tickets.filter(t => t.status !== "resolved");
-  const resolvedTickets = tickets.filter(t => t.status === "resolved");
-
-  const newCount = tickets.filter(t => t.status === "new").length;
-  const inProgressCount = tickets.filter(t => t.status === "in_progress").length;
-  const awaitingCount = tickets.filter(t => t.status === "awaiting_client").length;
-  const escalatedCount = tickets.filter(t => t.status === "escalated").length;
-
-  const breachedResponseCount = tickets.filter(t => t.isResponseBreached).length;
-  const breachedResolveCount = tickets.filter(t => t.isResolveBreached).length;
-
-  const totalSlaCalculable = tickets.length;
-  const metSlaCount = tickets.filter(t => !t.isResponseBreached && !t.isResolveBreached).length;
-  const slaCompliancePct = totalSlaCalculable > 0 ? Math.round((metSlaCount / totalSlaCalculable) * 100) : 100;
-
-  return res.json({
-    summary: {
-      totalTickets: tickets.length,
-      openCount: openTickets.length,
-      resolvedCount: resolvedTickets.length,
-      slaCompliancePct
-    },
-    byStatus: {
-      new: newCount,
-      in_progress: inProgressCount,
-      awaiting_client: awaitingCount,
-      escalated: escalatedCount,
-      resolved: resolvedTickets.length
-    },
-    slaBreaches: {
-      responseBreaches: breachedResponseCount,
-      resolveBreaches: breachedResolveCount
+  try {
+    let ticketsQuery = "SELECT * FROM tickets";
+    const params: any[] = [];
+    if (tenantId) {
+      params.push(tenantId);
+      ticketsQuery += " WHERE tenant_id = $1";
     }
-  });
+    const ticketsRes = await query(ticketsQuery, params);
+    const tickets = ticketsRes.rows;
+
+    const openTickets = tickets.filter(t => t.status !== "resolved");
+    const resolvedTickets = tickets.filter(t => t.status === "resolved");
+
+    const newCount = tickets.filter(t => t.status === "new").length;
+    const inProgressCount = tickets.filter(t => t.status === "in_progress").length;
+    const awaitingCount = tickets.filter(t => t.status === "awaiting_client").length;
+    const escalatedCount = tickets.filter(t => t.status === "escalated").length;
+
+    const breachedResponseCount = tickets.filter(t => t.is_response_breached).length;
+    const breachedResolveCount = tickets.filter(t => t.is_resolve_breached).length;
+
+    const totalSlaCalculable = tickets.length;
+    const metSlaCount = tickets.filter(t => !t.is_response_breached && !t.is_resolve_breached).length;
+    const slaCompliancePct = totalSlaCalculable > 0 ? Math.round((metSlaCount / totalSlaCalculable) * 100) : 100;
+
+    return res.json({
+      summary: {
+        totalTickets: tickets.length,
+        openCount: openTickets.length,
+        resolvedCount: resolvedTickets.length,
+        slaCompliancePct
+      },
+      byStatus: {
+        new: newCount,
+        in_progress: inProgressCount,
+        awaiting_client: awaitingCount,
+        escalated: escalatedCount,
+        resolved: resolvedTickets.length
+      },
+      slaBreaches: {
+        responseBreaches: breachedResponseCount,
+        resolveBreaches: breachedResolveCount
+      }
+    });
+  } catch (err) {
+    return res.status(500).json({ error: "Failed to generate dashboard report" });
+  }
 });
 
 // 10. Inbound Email webhook emulator
-app.post("/api/webhook/email/inbound", (req, res) => {
-  const db = readDb();
+app.post("/api/webhook/email/inbound", async (req, res) => {
   const { from, subject, body } = req.body;
 
   if (!from || !subject || !body) {
     return res.status(400).json({ error: "Email must include values for: from, subject, and body." });
   }
 
-  // Look for thread Reference indicators like '[TKT-ACME-0002]'
-  const matchRef = subject.match(/(TKT-\w+-\d+)/i);
-  let resolvedTicket: Ticket | undefined = undefined;
+  try {
+    const matchRef = subject.match(/(TKT-\w+-\d+)/i);
+    let resolvedTicket: any = undefined;
 
-  if (matchRef) {
-    const matchedRefString = matchRef[0].toUpperCase();
-    resolvedTicket = db.tickets.find(t => t.reference === matchedRefString);
-  }
-
-  // Resolve user profile or create dynamic guest
-  let user = db.users.find(u => u.email.toLowerCase() === from.toLowerCase());
-  if (!user) {
-    // Lazy guest user creation
-    user = {
-      id: `user-guest-${Date.now()}`,
-      email: from,
-      fullName: from.split("@")[0].toUpperCase(),
-      userType: "client",
-      tenantId: "tenant-acme-id",
-      companyId: "company-roadrunner-id",
-      role: "client_user",
-      isActive: true,
-      createdAt: new Date().toISOString()
-    };
-    db.users.push(user);
-    db.companies[0] && db.companies[0].name;
-  }
-
-  if (resolvedTicket) {
-    // Append message reply to thread
-    const ticketId = resolvedTicket.id;
-    const originalStatus = resolvedTicket.status;
-
-    const emailMsg: Message = {
-      id: `msg-email-${Date.now()}`,
-      ticketId,
-      tenantId: resolvedTicket.tenantId,
-      authorId: user.id,
-      authorName: user.fullName,
-      authorRole: user.role,
-      content: body,
-      isInternal: false,
-      source: "email",
-      attachments: [],
-      createdAt: new Date().toISOString()
-    };
-
-    db.messages.push(emailMsg);
-    // Automatic reopened workflow
-    if (resolvedTicket.status === "resolved" || resolvedTicket.status === "awaiting_client") {
-      resolvedTicket.status = "in_progress";
+    if (matchRef) {
+      const matchedRefString = matchRef[0].toUpperCase();
+      const ticketRes = await query("SELECT * FROM tickets WHERE reference = $1", [matchedRefString]);
+      if (ticketRes.rows.length > 0) {
+        resolvedTicket = ticketRes.rows[0];
+      }
     }
-    resolvedTicket.updatedAt = new Date().toISOString();
 
-    writeDb(db);
-    return res.json({ status: "appended_to_thread", reference: resolvedTicket.reference, previousStatus: originalStatus, currentStatus: resolvedTicket.status });
-  } else {
-    // Create new ticket altogether from cold intake email
-    const tenantSla = db.slaPolicies["tenant-acme-id"] || DEFAULT_SLA_POLICIES;
-    const slaRule = tenantSla.medium; // default allocation
+    let userRes = await query("SELECT * FROM users WHERE LOWER(email) = LOWER($1)", [from]);
+    let user = userRes.rows[0];
+    const nowStr = new Date().toISOString();
 
-    const respTarget = new Date(Date.now() + slaRule.firstResponseMinutes * 60 * 1000).toISOString();
-    const resolveTarget = new Date(Date.now() + slaRule.resolutionMinutes * 60 * 1000).toISOString();
+    if (!user) {
+      const newUserId = `user-guest-${Date.now()}`;
+      const fullName = from.split("@")[0].toUpperCase();
+      await query(
+        `INSERT INTO users (id, email, full_name, user_type, tenant_id, company_id, role, is_active, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [newUserId, from, fullName, "client", "tenant-acme-id", "company-roadrunner-id", "client_user", true, nowStr]
+      );
+      userRes = await query("SELECT * FROM users WHERE id = $1", [newUserId]);
+      user = userRes.rows[0];
+    }
 
-    const reference = `TKT-ACME-${db.tickets.length + 101}`;
+    if (resolvedTicket) {
+      const ticketId = resolvedTicket.id;
+      const originalStatus = resolvedTicket.status;
+      const emailMsgId = `msg-email-${Date.now()}`;
 
-    const newTicket: Ticket = {
-      id: `ticket-email-${Date.now()}`,
-      tenantId: "tenant-acme-id",
-      companyId: "company-roadrunner-id",
-      companyName: "Roadrunner Delivery Services",
-      reference,
-      subject,
-      description: body,
-      status: "new",
-      priority: "medium",
-      tier: "l1",
-      slaResponseBy: respTarget,
-      slaResolveBy: resolveTarget,
-      isResponseBreached: false,
-      isResolveBreached: false,
-      isResponseMet: false,
-      isResolveMet: false,
-      customFields: { channel: "Inbound Email" },
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
+      await query(
+        `INSERT INTO messages (id, ticket_id, tenant_id, author_id, author_name, author_role, content, is_internal, source, attachments, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        [emailMsgId, ticketId, resolvedTicket.tenant_id, user.id, user.full_name, user.role, body, false, "email", JSON.stringify([]), nowStr]
+      );
 
-    db.tickets.unshift(newTicket);
+      let nextStatus = resolvedTicket.status;
+      if (resolvedTicket.status === "resolved" || resolvedTicket.status === "awaiting_client") {
+        nextStatus = "in_progress";
+      }
 
-    const emailMsg: Message = {
-      id: `msg-email-init-${Date.now()}`,
-      ticketId: newTicket.id,
-      tenantId: "tenant-acme-id",
-      authorId: user.id,
-      authorName: user.fullName,
-      authorRole: user.role,
-      content: body,
-      isInternal: false,
-      source: "email",
-      attachments: [],
-      createdAt: new Date().toISOString()
-    };
-    db.messages.push(emailMsg);
+      await query(
+        `UPDATE tickets SET status = $1, updated_at = $2 WHERE id = $3`,
+        [nextStatus, nowStr, ticketId]
+      );
 
-    writeDb(db);
-    return res.json({ status: "ticket_created_from_email", reference: newTicket.reference });
+      return res.json({
+        status: "appended_to_thread",
+        reference: resolvedTicket.reference,
+        previousStatus: originalStatus,
+        currentStatus: nextStatus
+      });
+    } else {
+      const tenantRes = await query("SELECT policies FROM sla_policies WHERE tenant_id = 'tenant-acme-id'");
+      const policies = tenantRes.rows[0]?.policies || DEFAULT_SLA_POLICIES;
+      const slaRule = policies.medium;
+
+      const respTarget = new Date(Date.now() + slaRule.firstResponseMinutes * 60 * 1000).toISOString();
+      const resolveTarget = new Date(Date.now() + slaRule.resolutionMinutes * 60 * 1000).toISOString();
+
+      const countRes = await query("SELECT COUNT(*) FROM tickets");
+      const tCount = parseInt(countRes.rows[0].count, 10) + 101;
+      const reference = `TKT-ACME-${tCount}`;
+      const newTicketId = `ticket-email-${Date.now()}`;
+
+      await query(
+        `INSERT INTO tickets (id, tenant_id, company_id, company_name, reference, subject, description, status, priority, tier, sla_response_by, sla_resolve_by, is_response_breached, is_resolve_breached, is_response_met, is_resolve_met, custom_fields, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
+        [
+          newTicketId, "tenant-acme-id", "company-roadrunner-id", "Roadrunner Delivery Services", reference,
+          subject, body, "new", "medium", "l1", respTarget, resolveTarget, false, false, false, false,
+          { channel: "Inbound Email" }, nowStr, nowStr
+        ]
+      );
+
+      const emailMsgId = `msg-email-init-${Date.now()}`;
+      await query(
+        `INSERT INTO messages (id, ticket_id, tenant_id, author_id, author_name, author_role, content, is_internal, source, attachments, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        [emailMsgId, newTicketId, "tenant-acme-id", user.id, user.full_name, user.role, body, false, "email", JSON.stringify([]), nowStr]
+      );
+
+      return res.json({ status: "ticket_created_from_email", reference });
+    }
+  } catch (err) {
+    return res.status(500).json({ error: "Failed to process inbound email" });
   }
 });
 
@@ -933,8 +1058,6 @@ app.post("/api/copilot/triage", async (req, res) => {
       throw new Error("Missing key");
     }
   } catch (err) {
-    // Graceful fallback when Gemini key is missing or invalid.
-    // Extremely clean programmatic heuristics to assure immediate responsiveness of the UI.
     const isS3Fail = subject.toLowerCase().includes("s3") || description.toLowerCase().includes("415");
     const isNuclear = subject.toLowerCase().includes("nuclear") || description.toLowerCase().includes("kelvin");
 
@@ -968,39 +1091,132 @@ app.post("/api/copilot/triage", async (req, res) => {
 });
 
 // 12. Backup entire state (Download JSON DB)
-app.get("/api/backup", (req, res) => {
-  const db = readDb();
-  res.setHeader("Content-Disposition", 'attachment; filename="supportnexus-backup.json"');
-  res.setHeader("Content-Type", "application/json");
-  return res.send(JSON.stringify(db, null, 2));
+app.get("/api/backup", async (req, res) => {
+  try {
+    const tenants = (await query("SELECT * FROM tenants")).rows.map(t => ({
+      id: t.id,
+      name: t.name,
+      subdomain: t.subdomain,
+      branding: t.branding,
+      isActive: t.is_active,
+      createdAt: t.created_at
+    }));
+
+    const companies = (await query("SELECT * FROM companies")).rows.map(c => ({
+      id: c.id,
+      tenantId: c.tenant_id,
+      name: c.name,
+      createdAt: c.created_at
+    }));
+
+    const users = (await query("SELECT * FROM users")).rows.map(mapUser);
+    const tickets = (await query("SELECT * FROM tickets")).rows.map(mapTicket);
+    const messages = (await query("SELECT * FROM messages")).rows.map(mapMessage);
+
+    const slaRows = (await query("SELECT * FROM sla_policies")).rows;
+    const slaPolicies: Record<string, SLAPolicies> = {};
+    slaRows.forEach(row => {
+      slaPolicies[row.tenant_id] = row.policies;
+    });
+
+    const backupData: DatabaseBackup = {
+      exportTimestamp: new Date().toISOString(),
+      version: "1.0",
+      tenants,
+      companies,
+      users,
+      tickets,
+      messages,
+      slaPolicies
+    };
+
+    res.setHeader("Content-Disposition", 'attachment; filename="supportnexus-backup.json"');
+    res.setHeader("Content-Type", "application/json");
+    return res.send(JSON.stringify(backupData, null, 2));
+  } catch (err) {
+    return res.status(500).json({ error: "Failed to generate database backup" });
+  }
 });
 
 // 13. Restore entire state (Upload JSON DB)
-app.post("/api/restore", (req, res) => {
+app.post("/api/restore", async (req, res) => {
   const { backupData } = req.body;
   if (!backupData || !backupData.tenants || !backupData.users || !backupData.tickets) {
     return res.status(400).json({ error: "Invalid backup format. Must contain tenants, users, and tickets structures." });
   }
 
-  // Format validations
-  const restoredDb: DatabaseBackup = {
-    exportTimestamp: new Date().toISOString(),
-    version: backupData.version || "1.0",
-    tenants: backupData.tenants,
-    companies: backupData.companies || [],
-    users: backupData.users,
-    tickets: backupData.tickets,
-    messages: backupData.messages || [],
-    slaPolicies: backupData.slaPolicies || { "tenant-acme-id": DEFAULT_SLA_POLICIES }
-  };
+  try {
+    await query("TRUNCATE messages, tickets, users, companies, sla_policies, tenants CASCADE");
 
-  writeDb(restoredDb);
-  return res.json({ status: "restored_success", tenantsCount: restoredDb.tenants.length, ticketsCount: restoredDb.tickets.length, usersCount: restoredDb.users.length });
+    for (const t of backupData.tenants) {
+      await query(
+        `INSERT INTO tenants (id, name, subdomain, branding, is_active, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [t.id, t.name, t.subdomain, t.branding, t.isActive, t.createdAt]
+      );
+    }
+
+    for (const c of backupData.companies || []) {
+      await query(
+        `INSERT INTO companies (id, tenant_id, name, created_at)
+         VALUES ($1, $2, $3, $4)`,
+        [c.id, c.tenantId, c.name, c.createdAt]
+      );
+    }
+
+    for (const u of backupData.users) {
+      await query(
+        `INSERT INTO users (id, email, full_name, user_type, tenant_id, company_id, role, is_active, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [u.id, u.email, u.fullName, u.userType, u.tenantId, u.companyId || null, u.role, u.isActive, u.createdAt]
+      );
+    }
+
+    for (const t of backupData.tickets) {
+      await query(
+        `INSERT INTO tickets (id, tenant_id, company_id, company_name, reference, subject, description, status, priority, tier, assigned_to_id, assigned_to_name, sla_response_by, sla_resolve_by, is_response_breached, is_resolve_breached, is_response_met, is_resolve_met, custom_fields, created_at, updated_at, resolved_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)`,
+        [
+          t.id, t.tenantId, t.companyId, t.companyName, t.reference, t.subject, t.description, t.status, t.priority, t.tier,
+          t.assignedToId || null, t.assignedToName || null, t.slaResponseBy, t.slaResolveBy, t.isResponseBreached, t.isResolveBreached,
+          t.isResponseMet, t.isResolveMet, t.customFields, t.createdAt, t.updatedAt, t.resolvedAt || null
+        ]
+      );
+    }
+
+    for (const m of backupData.messages || []) {
+      await query(
+        `INSERT INTO messages (id, ticket_id, tenant_id, author_id, author_name, author_role, content, is_internal, source, attachments, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        [m.id, m.ticketId, m.tenantId, m.authorId, m.authorName, m.authorRole, m.content, m.isInternal, m.source, JSON.stringify(m.attachments || []), m.createdAt]
+      );
+    }
+
+    for (const [tenantId, policies] of Object.entries(backupData.slaPolicies || {})) {
+      await query(
+        `INSERT INTO sla_policies (tenant_id, policies)
+         VALUES ($1, $2)`,
+        [tenantId, policies]
+      );
+    }
+
+    return res.json({
+      status: "restored_success",
+      tenantsCount: backupData.tenants.length,
+      ticketsCount: backupData.tickets.length,
+      usersCount: backupData.users.length
+    });
+  } catch (err) {
+    return res.status(500).json({ error: "Failed to restore database backup" });
+  }
 });
 
 // Mount Vite middleware in development
 async function startServer() {
+  await initializeDatabase();
+
   if (process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",

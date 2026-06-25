@@ -1,0 +1,295 @@
+{
+  "exportTimestamp": "2026-06-19T23:03:47.847Z",
+  "version": "1.0",
+  "tenants": [
+    {
+      "id": "tenant-acme-id",
+      "name": "Acme Support Portal",
+      "subdomain": "acme",
+      "branding": {
+        "primaryColor": "indigo"
+      },
+      "isActive": true,
+      "createdAt": "2026-05-20T23:03:47.846Z"
+    },
+    {
+      "id": "tenant-globex-id",
+      "name": "Globex Enterprise Customer Hub",
+      "subdomain": "globex",
+      "branding": {
+        "primaryColor": "emerald"
+      },
+      "isActive": true,
+      "createdAt": "2026-06-04T23:03:47.846Z"
+    }
+  ],
+  "companies": [
+    {
+      "id": "company-roadrunner-id",
+      "tenantId": "tenant-acme-id",
+      "name": "Roadrunner Delivery Services",
+      "createdAt": "2026-05-21T23:03:47.846Z"
+    },
+    {
+      "id": "company-globex-client-id",
+      "tenantId": "tenant-globex-id",
+      "name": "Globex Retail Division",
+      "createdAt": "2026-06-05T23:03:47.846Z"
+    }
+  ],
+  "users": [
+    {
+      "id": "user-admin-id",
+      "email": "admin@supportnexus.app",
+      "fullName": "Alex Rivera",
+      "userType": "internal",
+      "tenantId": "tenant-acme-id",
+      "role": "admin",
+      "isActive": true,
+      "createdAt": "2026-05-25T23:03:47.846Z"
+    },
+    {
+      "id": "user-l1-id",
+      "email": "l1@supportnexus.app",
+      "fullName": "Sarah Connor (L1 Support)",
+      "userType": "internal",
+      "tenantId": "tenant-acme-id",
+      "role": "l1_agent",
+      "isActive": true,
+      "createdAt": "2026-05-30T23:03:47.846Z"
+    },
+    {
+      "id": "user-l2-id",
+      "email": "l2@supportnexus.app",
+      "fullName": "Marcus Wright (L2 Specialist)",
+      "userType": "internal",
+      "tenantId": "tenant-acme-id",
+      "role": "l2_agent",
+      "isActive": true,
+      "createdAt": "2026-05-31T23:03:47.846Z"
+    },
+    {
+      "id": "user-l3-id",
+      "email": "l3@supportnexus.app",
+      "fullName": "Dr. John Connor (L3 Expert)",
+      "userType": "internal",
+      "tenantId": "tenant-acme-id",
+      "role": "l3_agent",
+      "isActive": true,
+      "createdAt": "2026-06-01T23:03:47.846Z"
+    },
+    {
+      "id": "user-cust-acme-id",
+      "email": "customer@acme.com",
+      "fullName": "Wile E. Coyote",
+      "userType": "client",
+      "tenantId": "tenant-acme-id",
+      "companyId": "company-roadrunner-id",
+      "role": "client_user",
+      "isActive": true,
+      "createdAt": "2026-06-09T23:03:47.846Z"
+    },
+    {
+      "id": "user-cust-globex-id",
+      "email": "customer@globex.com",
+      "fullName": "Hank Scorpio",
+      "userType": "client",
+      "tenantId": "tenant-globex-id",
+      "companyId": "company-globex-client-id",
+      "role": "client_user",
+      "isActive": true,
+      "createdAt": "2026-06-10T23:03:47.846Z"
+    }
+  ],
+  "tickets": [
+    {
+      "id": "ticket-1",
+      "tenantId": "tenant-acme-id",
+      "companyId": "company-roadrunner-id",
+      "companyName": "Roadrunner Delivery Services",
+      "reference": "TKT-ACME-0001",
+      "subject": "Rocket Skates fail to ignite under load",
+      "description": "Upon activating the dual-rocket boosters at maximum foot extension, ignition fails and produces only dark smoke. This is causing significant operational delay while chasing prey.",
+      "status": "new",
+      "priority": "high",
+      "tier": "l1",
+      "slaResponseBy": "2026-06-20T00:03:47.846Z",
+      "slaResolveBy": "2026-06-20T03:03:47.846Z",
+      "isResponseBreached": false,
+      "isResolveBreached": false,
+      "isResponseMet": false,
+      "isResolveMet": false,
+      "customFields": {
+        "deviceType": "Ankle Accel-800",
+        "serialNumber": "ACME-9981-RWT",
+        "operatingSystem": "N/A"
+      },
+      "createdAt": "2026-06-19T22:53:47.846Z",
+      "updatedAt": "2026-06-19T22:53:47.846Z"
+    },
+    {
+      "id": "ticket-2",
+      "tenantId": "tenant-acme-id",
+      "companyId": "company-roadrunner-id",
+      "companyName": "Roadrunner Delivery Services",
+      "reference": "TKT-ACME-0002",
+      "subject": "S3 Attachment uploads throwing 415 errors manually",
+      "description": "When using the web interface to upload critical testing records (PNG files, ~3MB), we receive a 415 HTTP invalid mimetype error response on the client console. Need L2 check on fileserver MIME sniffing config.",
+      "status": "escalated",
+      "priority": "medium",
+      "tier": "l2",
+      "slaResponseBy": "2026-06-19T22:38:47.846Z",
+      "slaResolveBy": "2026-06-20T10:03:47.846Z",
+      "isResponseBreached": true,
+      "isResolveBreached": false,
+      "isResponseMet": false,
+      "isResolveMet": false,
+      "customFields": {
+        "deviceType": "Client Desktop",
+        "serialNumber": "REF-PORTAL-WEB",
+        "operatingSystem": "Debian 12"
+      },
+      "createdAt": "2026-06-19T18:03:47.846Z",
+      "updatedAt": "2026-06-19T19:03:47.846Z"
+    },
+    {
+      "id": "ticket-3",
+      "tenantId": "tenant-globex-id",
+      "companyId": "company-globex-client-id",
+      "companyName": "Globex Retail Division",
+      "reference": "TKT-GLOBEX-0001",
+      "subject": "Central Server Nuclear Power Regulator temperature anomalies",
+      "description": "Our core regulatory metrics indicate a sudden thermal spike in reactor module 4 during compile cycles. We need priority L3 override to review compiler instruction scheduling blocks.",
+      "status": "in_progress",
+      "priority": "urgent",
+      "tier": "l3",
+      "slaResponseBy": "2026-06-19T23:13:47.846Z",
+      "slaResolveBy": "2026-06-19T23:48:47.846Z",
+      "isResponseBreached": false,
+      "isResolveBreached": false,
+      "isResponseMet": true,
+      "isResolveMet": false,
+      "customFields": {
+        "deviceType": "Atomic Core Controller",
+        "serialNumber": "SN-99120-X",
+        "operatingSystem": "ScorpioOS v4"
+      },
+      "createdAt": "2026-06-19T22:58:47.846Z",
+      "updatedAt": "2026-06-19T23:01:47.846Z"
+    }
+  ],
+  "messages": [
+    {
+      "id": "msg-1-1",
+      "ticketId": "ticket-1",
+      "tenantId": "tenant-acme-id",
+      "authorId": "user-cust-acme-id",
+      "authorName": "Wile E. Coyote",
+      "authorRole": "client_user",
+      "content": "This client portal has surprisingly fast responses. I am uploading the telemetry from the boots. It blew a hole in my desert runway, please check ASAP.",
+      "isInternal": false,
+      "source": "portal",
+      "attachments": [],
+      "createdAt": "2026-06-19T22:54:47.847Z"
+    },
+    {
+      "id": "msg-2-1",
+      "ticketId": "ticket-2",
+      "tenantId": "tenant-acme-id",
+      "authorId": "user-cust-acme-id",
+      "authorName": "Wile E. Coyote",
+      "authorRole": "client_user",
+      "content": "Here is the error screenshot captured directly from Chrome DevTools console showing mime-sniff block on line 234.",
+      "isInternal": false,
+      "source": "portal",
+      "attachments": [
+        {
+          "id": "attached-1",
+          "filename": "console_error_photo.png",
+          "mimeType": "image/png",
+          "sizeBytes": 154020,
+          "url": "https://images.unsplash.com/photo-1531403009284-440f080d1e12?auto=format&fit=crop&q=80&w=400",
+          "createdAt": "2026-06-19T18:03:47.847Z"
+        }
+      ],
+      "createdAt": "2026-06-19T18:03:47.847Z"
+    },
+    {
+      "id": "msg-2-2",
+      "ticketId": "ticket-2",
+      "tenantId": "tenant-acme-id",
+      "authorId": "user-l1-id",
+      "authorName": "Sarah Connor (L1 Support)",
+      "authorRole": "l1_agent",
+      "content": "INTERNAL DISCUSSIONS ONLY: Verified that the client gets blocked because our file upload gateway scans client-reported Content-Type and triggers strict security reject because Wile's operating system doesn't set standard PNG signatures. I am escalating to Marcus (L2) to inspect the server-side Sniffer whitelist.",
+      "isInternal": true,
+      "source": "portal",
+      "attachments": [],
+      "createdAt": "2026-06-19T19:03:47.847Z"
+    },
+    {
+      "id": "msg-3-1",
+      "ticketId": "ticket-3",
+      "tenantId": "tenant-globex-id",
+      "authorId": "user-cust-globex-id",
+      "authorName": "Hank Scorpio",
+      "authorRole": "client_user",
+      "content": "If the reactor goes above 4000 Kelvins, Cypress Creek might be vaporized. Please do not delay, johnny on the spot!",
+      "isInternal": false,
+      "source": "email",
+      "attachments": [],
+      "createdAt": "2026-06-19T22:58:47.847Z"
+    },
+    {
+      "id": "msg-3-2",
+      "ticketId": "ticket-3",
+      "tenantId": "tenant-globex-id",
+      "authorId": "user-l1-id",
+      "authorName": "Sarah Connor (L1 Support)",
+      "authorRole": "l1_agent",
+      "content": "This is a serious emergency. Handing off immediately to John Connor for senior level code execution.",
+      "isInternal": false,
+      "source": "portal",
+      "attachments": [],
+      "createdAt": "2026-06-19T23:00:47.847Z"
+    }
+  ],
+  "slaPolicies": {
+    "tenant-acme-id": {
+      "low": {
+        "firstResponseMinutes": 480,
+        "resolutionMinutes": 1440
+      },
+      "medium": {
+        "firstResponseMinutes": 240,
+        "resolutionMinutes": 720
+      },
+      "high": {
+        "firstResponseMinutes": 60,
+        "resolutionMinutes": 240
+      },
+      "urgent": {
+        "firstResponseMinutes": 15,
+        "resolutionMinutes": 60
+      }
+    },
+    "tenant-globex-id": {
+      "low": {
+        "firstResponseMinutes": 480,
+        "resolutionMinutes": 1440
+      },
+      "medium": {
+        "firstResponseMinutes": 240,
+        "resolutionMinutes": 720
+      },
+      "high": {
+        "firstResponseMinutes": 60,
+        "resolutionMinutes": 240
+      },
+      "urgent": {
+        "firstResponseMinutes": 15,
+        "resolutionMinutes": 60
+      }
+    }
+  }
+}
